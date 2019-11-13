@@ -32,35 +32,51 @@ abstract class ColumnProfile {
 }
 
 case class StandardColumnProfile(
-    column: String,
-    completeness: Double,
-    approximateNumDistinctValues: Long,
-    dataType: DataTypeInstances.Value,
-    isDataTypeInferred: Boolean,
-    typeCounts: Map[String, Long],
-    histogram: Option[Distribution])
+                                  column: String,
+                                  completeness: Double,
+                                  approximateNumDistinctValues: Long,
+                                  dataType: DataTypeInstances.Value,
+                                  isDataTypeInferred: Boolean,
+                                  typeCounts: Map[String, Long],
+                                  histogram: Option[Distribution])
   extends ColumnProfile
 
 case class NumericColumnProfile(
-    column: String,
-    completeness: Double,
-    approximateNumDistinctValues: Long,
-    dataType: DataTypeInstances.Value,
-    isDataTypeInferred: Boolean,
-    typeCounts: Map[String, Long],
-    histogram: Option[Distribution],
-    kll: Option[BucketDistribution],
-    mean: Option[Double],
-    maximum: Option[Double],
-    minimum: Option[Double],
-    sum: Option[Double],
-    stdDev: Option[Double],
-    approxPercentiles: Option[Seq[Double]])
+                                 column: String,
+                                 completeness: Double,
+                                 approximateNumDistinctValues: Long,
+                                 dataType: DataTypeInstances.Value,
+                                 isDataTypeInferred: Boolean,
+                                 typeCounts: Map[String, Long],
+                                 histogram: Option[Distribution],
+                                 kll: Option[BucketDistribution],
+                                 mean: Option[Double],
+                                 maximum: Option[Double],
+                                 minimum: Option[Double],
+                                 sum: Option[Double],
+                                 stdDev: Option[Double],
+                                 approxPercentiles: Option[Seq[Double]])
+  extends ColumnProfile
+
+case class StringColumnProfile(
+                                column: String,
+                                completeness: Double,
+                                approximateNumDistinctValues: Long,
+                                dataType: DataTypeInstances.Value,
+                                isDataTypeInferred: Boolean,
+                                typeCounts: Map[String, Long],
+                                histogram: Option[Distribution],
+                                mean: Option[Double],
+                                maximum: Option[Double],
+                                minimum: Option[Double]/*,
+     sum: Option[Double],
+     stdDev: Option[Double],
+     approxPercentiles: Option[Seq[Double]]*/)
   extends ColumnProfile
 
 case class ColumnProfiles(
-    profiles: Map[String, ColumnProfile],
-    numRecords: Long)
+                           profiles: Map[String, ColumnProfile],
+                           numRecords: Long)
 
 
 object ColumnProfiles {
@@ -160,6 +176,17 @@ object ColumnProfiles {
           }
 
           columnProfileJson.add("approxPercentiles", approxPercentilesJson)
+
+        case stringColumnProfile: StringColumnProfile =>
+          stringColumnProfile.mean.foreach { mean =>
+            columnProfileJson.addProperty("mean", mean)
+          }
+          stringColumnProfile.maximum.foreach { maximum =>
+            columnProfileJson.addProperty("maximum", maximum)
+          }
+          stringColumnProfile.minimum.foreach { minimum =>
+            columnProfileJson.addProperty("minimum", minimum)
+          }
 
         case _ =>
       }

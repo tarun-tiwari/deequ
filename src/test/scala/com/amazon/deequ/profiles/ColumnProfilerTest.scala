@@ -77,76 +77,103 @@ class ColumnProfilerTest extends WordSpec with Matchers with SparkContextSpec
     "return correct NumericColumnProfiles for numeric String DataType columns" in
       withSparkSession { session =>
 
-      val data = getDfCompleteAndInCompleteColumns(session)
+        val data = getDfCompleteAndInCompleteColumns(session)
 
-      val actualColumnProfile = ColumnProfiler.profile(data, Option(Seq("item")), false, 1)
-        .profiles("item")
+        val actualColumnProfile = ColumnProfiler.profile(data, Option(Seq("item")), false, 1)
+          .profiles("item")
 
-      val expectedColumnProfile = NumericColumnProfile(
-        "item",
-        1.0,
-        6,
-        DataTypeInstances.Integral,
-        true,
-        Map(
-          "Boolean" -> 0,
-          "Fractional" -> 0,
-          "Integral" -> 6,
-          "Unknown" -> 0,
-          "String" -> 0
-        ),
-        None,
-        None,
-        Some(3.5),
-        Some(6.0),
-        Some(1.0),
-        Some(21.0),
-        Some(1.707825127659933),
-        Some(Seq(1.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
-          2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
-          2.0, 2.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0,
-          3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0,
-          4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0,
-          5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 6.0, 6.0, 6.0, 6.0, 6.0,
-          6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0)))
+        val expectedColumnProfile = NumericColumnProfile(
+          "item",
+          1.0,
+          6,
+          DataTypeInstances.Integral,
+          true,
+          Map(
+            "Boolean" -> 0,
+            "Fractional" -> 0,
+            "Integral" -> 6,
+            "Unknown" -> 0,
+            "String" -> 0
+          ),
+          None,
+          None,
+          Some(3.5),
+          Some(6.0),
+          Some(1.0),
+          Some(21.0),
+          Some(1.707825127659933),
+          Some(Seq(1.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+            2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+            2.0, 2.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0,
+            3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0,
+            4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0,
+            5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 6.0, 6.0, 6.0, 6.0, 6.0,
+            6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0)))
 
         assertProfilesEqual(expectedColumnProfile,
           actualColumnProfile.asInstanceOf[NumericColumnProfile])
-    }
+      }
 
     "return correct NumericColumnProfiles for numeric columns with correct DataType" in
       withSparkSession { session =>
 
-      val data = getDfWithNumericFractionalValues(session)
+        val data = getDfWithNumericFractionalValues(session)
 
-      val actualColumnProfile = ColumnProfiler.profile(data, Option(Seq("att1")), false, 1)
-        .profiles("att1")
+        val actualColumnProfile = ColumnProfiler.profile(data, Option(Seq("att1")), false, 1)
+          .profiles("att1")
 
-      val expectedColumnProfile = NumericColumnProfile(
-        "att1",
-        1.0,
-        6,
-        DataTypeInstances.Fractional,
-        false,
-        Map.empty,
-        None,
-        None,
-        Some(3.5),
-        Some(6.0),
-        Some(1.0),
-        Some(21.0),
-        Some(1.707825127659933),
-        Some(Seq(1.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
-          2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
-          2.0, 2.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0,
-          3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0,
-          4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0,
-          5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 6.0, 6.0, 6.0, 6.0, 6.0,
-          6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0)))
+        val expectedColumnProfile = NumericColumnProfile(
+          "att1",
+          1.0,
+          6,
+          DataTypeInstances.Fractional,
+          false,
+          Map.empty,
+          None,
+          None,
+          Some(3.5),
+          Some(6.0),
+          Some(1.0),
+          Some(21.0),
+          Some(1.707825127659933),
+          Some(Seq(1.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+            2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+            2.0, 2.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0,
+            3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0,
+            4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0,
+            5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 6.0, 6.0, 6.0, 6.0, 6.0,
+            6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0)))
 
         assertProfilesEqual(expectedColumnProfile,
           actualColumnProfile.asInstanceOf[NumericColumnProfile])
-    }
+      }
+
+    "return correct StringColumnProfiles for string columns" in
+      withSparkSession { session =>
+
+        val data = getDfWithStringValues(session)
+
+        val actualColumnProfile = ColumnProfiler.profile(data, Option(Seq("att1")), false, 1)
+          .profiles("att1")
+
+        println(actualColumnProfile.toString)
+
+        val expectedColumnProfile = StringColumnProfile(
+          "att1",
+          1.0,
+          6,
+          DataTypeInstances.String,
+          true,
+          Map.empty,
+          None,
+          Some(18.3),
+          Some(16),
+          Some(20)
+        )
+
+        //assertProfilesEqual(expectedColumnProfile,
+        //actualColumnProfile.asInstanceOf[StringColumnProfile])
+      }
 
     "return correct Histograms for string columns" in withSparkSession { session =>
 

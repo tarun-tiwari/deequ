@@ -159,6 +159,22 @@ trait FixtureSupport {
     ).toDF("item", "att1", "att2")
   }
 
+  // --------------- Added for String Profile --------------
+
+  def getDfWithStringValues(sparkSession: SparkSession): DataFrame = {
+    import sparkSession.implicits._
+    Seq(
+      ("1", "String One", 1.0),
+      ("2", "String Two 2", 2.0),
+      ("3", "String three", 3.0),
+      ("4", "String four", 4.0),
+      ("5", "String Five", 5.0),
+      ("6", "String Six", 6.0)
+    ).toDF("item", "att1", "att2")
+  }
+
+  // --------------- End Addition for String Profile -------
+
   def getDfWithNumericFractionalValuesForKLL(sparkSession: SparkSession): DataFrame = {
     import sparkSession.implicits._
     Seq(

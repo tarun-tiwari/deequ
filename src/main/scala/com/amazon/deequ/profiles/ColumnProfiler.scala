@@ -28,12 +28,12 @@ import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.types.{BooleanType, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, StringType, StructType, TimestampType, DataType => SparkDataType}
 
 private[deequ] case class GenericColumnStatistics(
-    numRecords: Long,
-    inferredTypes: Map[String, DataTypeInstances.Value],
-    knownTypes: Map[String, DataTypeInstances.Value],
-    typeDetectionHistograms: Map[String, Map[String, Long]],
-    approximateNumDistincts: Map[String, Long],
-    completenesses: Map[String, Double]) {
+                                                   numRecords: Long,
+                                                   inferredTypes: Map[String, DataTypeInstances.Value],
+                                                   knownTypes: Map[String, DataTypeInstances.Value],
+                                                   typeDetectionHistograms: Map[String, Map[String, Long]],
+                                                   approximateNumDistincts: Map[String, Long],
+                                                   completenesses: Map[String, Double]) {
 
   def typeOf(column: String): DataTypeInstances.Value = {
     val inferredAndKnown = inferredTypes ++ knownTypes
@@ -42,29 +42,35 @@ private[deequ] case class GenericColumnStatistics(
 }
 
 private[deequ] case class NumericColumnStatistics(
-    means: Map[String, Double],
-    stdDevs: Map[String, Double],
-    minima: Map[String, Double],
-    maxima: Map[String, Double],
-    sums: Map[String, Double],
-    kll: Map[String, BucketDistribution],
-    approxPercentiles: Map[String, Seq[Double]]
-)
+                                                   means: Map[String, Double],
+                                                   stdDevs: Map[String, Double],
+                                                   minima: Map[String, Double],
+                                                   maxima: Map[String, Double],
+                                                   sums: Map[String, Double],
+                                                   kll: Map[String, BucketDistribution],
+                                                   approxPercentiles: Map[String, Seq[Double]]
+                                                 )
+
+private[deequ] case class StringColumnStatistics(
+                                                  lengthAvg: Map[String, Double],
+                                                  lengthMin: Map[String, Double],
+                                                  lengthMax: Map[String, Double]
+                                                )
 
 private[deequ] case class CategoricalColumnStatistics(histograms: Map[String, Distribution])
 
 /** Computes single-column profiles in three scans over the data, intented for large (TB) datasets
-  *
-  * In the first phase, we compute the number of records, as well as the datatype, approx. num
-  * distinct values and the completeness of each column in the sample.
-  *
-  * In the second phase, we compute min, max and mean for numeric columns (in the future, we should
-  * add quantiles once they become scan-shareable)
-  *
-  * In the third phase, we compute histograms for all columns with less than
-  * `lowCardinalityHistogramThreshold` (approx.) distinct values
-  *
-  */
+ *
+ * In the first phase, we compute the number of records, as well as the datatype, approx. num
+ * distinct values and the completeness of each column in the sample.
+ *
+ * In the second phase, we compute min, max and mean for numeric columns (in the future, we should
+ * add quantiles once they become scan-shareable)
+ *
+ * In the third phase, we compute histograms for all columns with less than
+ * `lowCardinalityHistogramThreshold` (approx.) distinct values
+ *
+ */
 object ColumnProfiler {
 
   val DEFAULT_CARDINALITY_THRESHOLD = 120
@@ -88,17 +94,17 @@ object ColumnProfiler {
    * @return the profile of columns
    */
   private[deequ] def profile(
-      data: DataFrame,
-      restrictToColumns: Option[Seq[String]] = None,
-      printStatusUpdates: Boolean = false,
-      lowCardinalityHistogramThreshold: Int =
-        ColumnProfiler.DEFAULT_CARDINALITY_THRESHOLD,
-      metricsRepository: Option[MetricsRepository] = None,
-      reuseExistingResultsUsingKey: Option[ResultKey] = None,
-      failIfResultsForReusingMissing: Boolean = false,
-      saveInMetricsRepositoryUsingKey: Option[ResultKey] = None,
-      kllParameters: Option[KLLParameters] = None)
-    : ColumnProfiles = {
+                              data: DataFrame,
+                              restrictToColumns: Option[Seq[String]] = None,
+                              printStatusUpdates: Boolean = false,
+                              lowCardinalityHistogramThreshold: Int =
+                              ColumnProfiler.DEFAULT_CARDINALITY_THRESHOLD,
+                              metricsRepository: Option[MetricsRepository] = None,
+                              reuseExistingResultsUsingKey: Option[ResultKey] = None,
+                              failIfResultsForReusingMissing: Boolean = false,
+                              saveInMetricsRepositoryUsingKey: Option[ResultKey] = None,
+                              kllParameters: Option[KLLParameters] = None)
+  : ColumnProfiles = {
 
     // Ensure that all desired columns exist
     restrictToColumns.foreach { restrictToColumns =>
@@ -195,13 +201,47 @@ object ColumnProfiler {
 
     val thirdPassResults = CategoricalColumnStatistics(histograms)
 
-    createProfiles(relevantColumns, genericStatistics, numericStatistics, thirdPassResults)
+    // --------------------------------------------------------------------------------------------------------------
+    // Changed for String profile
+    // --------------------------------------------------------------------------------------------------------------
+
+    // Fourth pass
+    if (printStatusUpdates) {
+      println("### PROFILING: Computing string column statistics in pass (4/4)...")
+    }
+
+    // We compute avg, min, max length for all string columns
+    val analyzersForFourthPass = getAnalyzersForFourthPass(relevantColumns, genericStatistics)
+
+    var analysisRunnerFourthPass = AnalysisRunner
+      .onData(data)
+      .addAnalyzers(analyzersForFourthPass)
+
+    analysisRunnerFourthPass = setMetricsRepositoryConfigurationIfNecessary(
+      analysisRunnerFourthPass,
+      metricsRepository,
+      reuseExistingResultsUsingKey,
+      failIfResultsForReusingMissing,
+      saveInMetricsRepositoryUsingKey)
+
+    val fourthPassResults = analysisRunnerFourthPass.run()
+
+    val stringStatistics = extractStringStatistics(fourthPassResults)
+
+
+
+    // --------------------------------------------------------------------------------------------------------------
+    // Changed END for String profile
+    // --------------------------------------------------------------------------------------------------------------
+
+
+    createProfiles(relevantColumns, genericStatistics, numericStatistics, stringStatistics, thirdPassResults)
   }
 
   private[this] def getRelevantColumns(
-      schema: StructType,
-      restrictToColumns: Option[Seq[String]])
-    : Seq[String] = {
+                                        schema: StructType,
+                                        restrictToColumns: Option[Seq[String]])
+  : Seq[String] = {
 
     schema.fields
       .filter { field => restrictToColumns.isEmpty || restrictToColumns.get.contains(field.name) }
@@ -209,9 +249,9 @@ object ColumnProfiler {
   }
 
   private[this] def getAnalyzersForGenericStats(
-      schema: StructType,
-      relevantColumns: Seq[String])
-    : Seq[Analyzer[_, Metric[_]]] = {
+                                                 schema: StructType,
+                                                 relevantColumns: Seq[String])
+  : Seq[Analyzer[_, Metric[_]]] = {
 
     schema.fields
       .filter { field => relevantColumns.contains(field.name) }
@@ -227,33 +267,54 @@ object ColumnProfiler {
       }
   }
 
-   private[this] def getAnalyzersForSecondPass(
-      relevantColumnNames: Seq[String],
-      genericStatistics: GenericColumnStatistics,
-      kllParameters: Option[KLLParameters] = None)
-    : Seq[Analyzer[_, Metric[_]]] = {
-      relevantColumnNames
-        .filter { name => Set(Integral, Fractional).contains(genericStatistics.typeOf(name)) }
-        .flatMap { name =>
+  private[this] def getAnalyzersForSecondPass(
+                                               relevantColumnNames: Seq[String],
+                                               genericStatistics: GenericColumnStatistics,
+                                               kllParameters: Option[KLLParameters] = None)
+  : Seq[Analyzer[_, Metric[_]]] = {
+    relevantColumnNames
+      .filter { name => Set(Integral, Fractional).contains(genericStatistics.typeOf(name)) }
+      .flatMap { name =>
 
-          val percentiles = (1 to 100).map {
-            _.toDouble / 100
-          }
-
-
-          Seq(Minimum(name), Maximum(name), Mean(name), StandardDeviation(name),
-            Sum(name), KLLSketch(name, kllParameters = kllParameters),
-            ApproxQuantiles(name, percentiles))
+        val percentiles = (1 to 100).map {
+          _.toDouble / 100
         }
-    }
+
+
+        Seq(Minimum(name), Maximum(name), Mean(name), StandardDeviation(name),
+          Sum(name), KLLSketch(name, kllParameters = kllParameters),
+          ApproxQuantiles(name, percentiles))
+      }
+  }
+
+  //--------------- Changed for String profiler ---------------
+
+  private[this] def getAnalyzersForFourthPass(
+                                               relevantColumnNames: Seq[String],
+                                               genericStatistics: GenericColumnStatistics)
+  : Seq[Analyzer[_, Metric[_]]] = {
+
+    relevantColumnNames
+      .filter { name => Set(String).contains(genericStatistics.typeOf(name)) }
+      .flatMap { name =>
+
+        /*val percentiles = (1 to 100).map {
+          _.toDouble / 100
+        }*/
+
+        Seq(MinLength(name), MaxLength(name), MeanLength(name))
+      }
+  }
+
+  //--------------- Change end for String Profiler ------------
 
   private[this] def setMetricsRepositoryConfigurationIfNecessary(
-      analysisRunBuilder: AnalysisRunBuilder,
-      metricsRepository: Option[MetricsRepository],
-      reuseExistingResultsForKey: Option[ResultKey],
-      failIfResultsForReusingMissing: Boolean,
-      saveInMetricsRepositoryUsingKey: Option[ResultKey])
-    : AnalysisRunBuilder = {
+                                                                  analysisRunBuilder: AnalysisRunBuilder,
+                                                                  metricsRepository: Option[MetricsRepository],
+                                                                  reuseExistingResultsForKey: Option[ResultKey],
+                                                                  failIfResultsForReusingMissing: Boolean,
+                                                                  saveInMetricsRepositoryUsingKey: Option[ResultKey])
+  : AnalysisRunBuilder = {
 
     var analysisRunBuilderResult = analysisRunBuilder
 
@@ -276,10 +337,10 @@ object ColumnProfiler {
   }
 
   private[this] def getAnalyzerContextWithHistogramResultsForReusingIfNecessary(
-      metricsRepository: Option[MetricsRepository],
-      reuseExistingResultsUsingKey: Option[ResultKey],
-      targetColumnsForHistograms: Seq[String])
-    : AnalyzerContext = {
+                                                                                 metricsRepository: Option[MetricsRepository],
+                                                                                 reuseExistingResultsUsingKey: Option[ResultKey],
+                                                                                 targetColumnsForHistograms: Seq[String])
+  : AnalyzerContext = {
 
     var analyzerContextExistingValues = AnalyzerContext.empty
 
@@ -306,7 +367,7 @@ object ColumnProfiler {
   }
 
   private[this] def convertColumnNamesAndDistributionToHistogramWithMetric(
-    columnNamesAndDistribution: Map[String, Distribution])
+                                                                            columnNamesAndDistribution: Map[String, Distribution])
   : Map[Analyzer[_, Metric[_]], Metric[_]] = {
 
     columnNamesAndDistribution
@@ -320,10 +381,10 @@ object ColumnProfiler {
   }
 
   private[this] def saveOrAppendResultsIfNecessary(
-      resultingAnalyzerContext: AnalyzerContext,
-      metricsRepository: Option[MetricsRepository],
-      saveOrAppendResultsWithKey: Option[ResultKey])
-    : Unit = {
+                                                    resultingAnalyzerContext: AnalyzerContext,
+                                                    metricsRepository: Option[MetricsRepository],
+                                                    saveOrAppendResultsWithKey: Option[ResultKey])
+  : Unit = {
 
     metricsRepository.foreach { repository =>
       saveOrAppendResultsWithKey.foreach { key =>
@@ -341,10 +402,10 @@ object ColumnProfiler {
 
   /* Cast string columns detected as numeric to their detected type */
   private[profiles] def castColumn(
-      data: DataFrame,
-      name: String,
-      toType: SparkDataType)
-    : DataFrame = {
+                                    data: DataFrame,
+                                    name: String,
+                                    toType: SparkDataType)
+  : DataFrame = {
 
     data.withColumn(s"${name}___CASTED", data(name).cast(toType))
       .drop(name)
@@ -352,10 +413,10 @@ object ColumnProfiler {
   }
 
   private[this] def extractGenericStatistics(
-      columns: Seq[String],
-      schema: StructType,
-      results: AnalyzerContext)
-    : GenericColumnStatistics = {
+                                              columns: Seq[String],
+                                              schema: StructType,
+                                              results: AnalyzerContext)
+  : GenericColumnStatistics = {
 
     val numRecords = results.metricMap
       .collect { case (_: Size, metric: DoubleMetric) => metric.value.get }
@@ -410,10 +471,10 @@ object ColumnProfiler {
 
 
   private[this] def castNumericStringColumns(
-      columns: Seq[String],
-      originalData: DataFrame,
-      genericStatistics: GenericColumnStatistics)
-    : DataFrame = {
+                                              columns: Seq[String],
+                                              originalData: DataFrame,
+                                              genericStatistics: GenericColumnStatistics)
+  : DataFrame = {
 
     var castedData = originalData
 
@@ -428,6 +489,45 @@ object ColumnProfiler {
 
     castedData
   }
+
+  // ------------------ Changed for String Profile ----------
+
+  private[this] def extractStringStatistics(results: AnalyzerContext): StringColumnStatistics = {
+
+    val means = results.metricMap
+      .collect { case (analyzer: MeanLength, metric: DoubleMetric) =>
+        metric.value match {
+          case Success(metricValue) => Some(analyzer.column -> metricValue)
+          case _ => None
+        }
+      }
+      .flatten
+      .toMap
+
+    val maxima = results.metricMap
+      .collect { case (analyzer: MaxLength, metric: DoubleMetric) =>
+        metric.value match {
+          case Success(metricValue) => Some(analyzer.column -> metricValue)
+          case _ => None
+        }
+      }
+      .flatten
+      .toMap
+
+    val minima = results.metricMap
+      .collect { case (analyzer: MinLength, metric: DoubleMetric) =>
+        metric.value match {
+          case Success(metricValue) => Some(analyzer.column -> metricValue)
+          case _ => None
+        }
+      }
+      .flatten
+      .toMap
+
+    StringColumnStatistics(means, minima, maxima)
+  }
+
+  // ------------------ Change end for String Profile ---------
 
 
   private[this] def extractNumericStatistics(results: AnalyzerContext): NumericColumnStatistics = {
@@ -509,10 +609,10 @@ object ColumnProfiler {
    * (2) have less than `lowCardinalityHistogramThreshold` approximate distinct values
    */
   private[this] def findTargetColumnsForHistograms(
-      schema: StructType,
-      genericStatistics: GenericColumnStatistics,
-      lowCardinalityHistogramThreshold: Long)
-    : Seq[String] = {
+                                                    schema: StructType,
+                                                    genericStatistics: GenericColumnStatistics,
+                                                    lowCardinalityHistogramThreshold: Long)
+  : Seq[String] = {
 
     val validSparkDataTypesForHistograms: Set[SparkDataType] = Set(
       StringType, BooleanType, DoubleType, FloatType, IntegerType, LongType, ShortType
@@ -538,9 +638,9 @@ object ColumnProfiler {
    * of the target columns is low.
    */
   private[this] def computeHistograms(
-      data: DataFrame,
-      targetColumns: Seq[String])
-    : Map[String, Distribution] = {
+                                       data: DataFrame,
+                                       targetColumns: Seq[String])
+  : Map[String, Distribution] = {
 
     val namesToIndexes = data.schema.fields
       .map { _.name }
@@ -578,18 +678,18 @@ object ColumnProfiler {
 
       targetColumn -> Distribution(values, numberOfBins = values.size)
     }
-    .toMap
+      .toMap
   }
 
   def getHistogramsForThirdPass(
-      data: DataFrame,
-      nonExistingHistogramColumns: Seq[String],
-      analyzerContextExistingValues: AnalyzerContext,
-      printStatusUpdates: Boolean,
-      failIfResultsForReusingMissing: Boolean,
-      metricsRepository: Option[MetricsRepository],
-      saveInMetricsRepositoryUsingKey: Option[ResultKey])
-    : Map[String, Distribution] = {
+                                 data: DataFrame,
+                                 nonExistingHistogramColumns: Seq[String],
+                                 analyzerContextExistingValues: AnalyzerContext,
+                                 printStatusUpdates: Boolean,
+                                 failIfResultsForReusingMissing: Boolean,
+                                 metricsRepository: Option[MetricsRepository],
+                                 saveInMetricsRepositoryUsingKey: Option[ResultKey])
+  : Map[String, Distribution] = {
 
     if (nonExistingHistogramColumns.nonEmpty) {
 
@@ -632,11 +732,12 @@ object ColumnProfiler {
   }
 
   private[this] def createProfiles(
-      columns: Seq[String],
-      genericStats: GenericColumnStatistics,
-      numericStats: NumericColumnStatistics,
-      categoricalStats: CategoricalColumnStatistics)
-    : ColumnProfiles = {
+                                    columns: Seq[String],
+                                    genericStats: GenericColumnStatistics,
+                                    numericStats: NumericColumnStatistics,
+                                    stringStats: StringColumnStatistics,
+                                    categoricalStats: CategoricalColumnStatistics)
+  : ColumnProfiles = {
 
     val profiles = columns
       .map { name =>
@@ -667,6 +768,24 @@ object ColumnProfiler {
               numericStats.sums.get(name),
               numericStats.stdDevs.get(name),
               numericStats.approxPercentiles.get(name))
+
+          //Length stats (min, avg, max of length), Count Stats(Nulls, Duplicates, Unique), Masked value counts)
+          case String =>
+            StringColumnProfile(
+              name,
+              completeness,
+              approxNumDistinct,
+              dataType,
+              isDataTypeInferred,
+              typeCounts,
+              histogram,
+              stringStats.lengthAvg.get(name),
+              stringStats.lengthMin.get(name),
+              stringStats.lengthMax.get(name)/*,
+              stringStats.countDups.get(name),
+              stringStats.countUniq.get(name),
+              stringStats.countMasked.get(name)*/
+            )
 
           case _ =>
             StandardColumnProfile(
